@@ -1,6 +1,9 @@
 from typing import Dict, Any, Optional, List
 from langchain_core.documents import Document
 from langchain_chroma import Chroma
+from src.retrievers.chroma_metadata_filter import build_chroma_filter
+
+
 
 
 # *************************** PRE-FILTER ***************************
