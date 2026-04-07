@@ -11,6 +11,7 @@ logger = setup_logger(__name__)
 
 # *************************** LOAD CSV *************************************
 def load_csv(file_path: str) -> pd.DataFrame:
+    """" Load CSV File"""
     try:
         return pd.read_csv(file_path)
     except Exception as e:
@@ -22,6 +23,7 @@ def load_csv(file_path: str) -> pd.DataFrame:
 
 # ************************* CLEAN AND NORMALIZE DATA ****************** 
 def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """ Normalize, clean, Remove white space to the features"""
     df = df.copy()
 
     df.fillna("", inplace=True)
@@ -52,6 +54,7 @@ def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 
 # *********************************** PARSE DETAILS COLUMN *****************************************
 def parse_details_column(df: pd.DataFrame) -> pd.DataFrame:
+    """Details colums is parse ex: '{}' > {}"""
     def safe_parse(x: str) -> Dict[str, Any]:
         try:
             return json.loads(x) if x else {}
@@ -68,6 +71,7 @@ def parse_details_column(df: pd.DataFrame) -> pd.DataFrame:
 
 # ********************************* CONVERT JSON TO TEXT ******************************************
 def convert_details_to_text(details):
+    """ Convert details column to textual format """
     parts = []
 
     for k, v in details.items():
@@ -82,6 +86,8 @@ def convert_details_to_text(details):
 
 # *********************************** BUILD DOCUMENT TEXT *******************************************
 def build_document_text(row: pd.Series) -> str:
+    """ Convert each row into text for document creation """
+    
     details_text = convert_details_to_text(row.get("details_parsed", {}))
 
     return f"""
@@ -105,6 +111,8 @@ Policy Details:
 
 # **************************** METADATA CREATION ********************************
 def build_metadata(row: pd.Series) -> Dict[str, Any]:
+    """Extract important metadata for metadata filtering"""
+   
     return {
         "policy_id": row.get("policy_id"),
         "policy_name": row.get("policy_name"),
@@ -121,6 +129,8 @@ def build_metadata(row: pd.Series) -> Dict[str, Any]:
 
 # ******************************* CONVERT TO DOCUMENTS ********************************
 def create_documents(df: pd.DataFrame) -> List[Document]:
+    """Maunllay convert into document objects"""
+
     documents = []
 
     for _, row in df.iterrows():
@@ -143,6 +153,7 @@ def create_documents(df: pd.DataFrame) -> List[Document]:
 # *********************************** DOCUMENT INGESTION *****************************
 
 def ingest_pipeline(file_path: str) -> List[Document]:
+    """Perform all the task in document ingestion like loading, cleaning, parsing and document creation"""
     df = load_csv(file_path)
     df = clean_dataframe(df)
     df = parse_details_column(df)
