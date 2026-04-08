@@ -8,7 +8,9 @@ def get_llm():
         model="openai/gpt-oss-120b",
         temperature=0.1,
         max_tokens=1024,
-        top_p=0.9,
         timeout=30,
-        max_retries=2
+        max_retries=2,
+        model_kwargs={
+            "top_p": 0.9
+        }
     )
