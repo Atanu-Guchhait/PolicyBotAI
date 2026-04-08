@@ -69,16 +69,3 @@ def load_vector_store(persist_dir: str = PERSIST_DIR):
     )
 
 
-# ******************************* SMART LOADER ********************************
-def get_vector_store(csv_path: Optional[str] = None):
-
-    if os.path.exists(PERSIST_DIR) and len(os.listdir(PERSIST_DIR)) > 0:
-        return load_vector_store()
-
-    if csv_path is None:
-        raise ValueError("CSV path required to build vector store")
-
-    logger.info("Creating vector DB for the first time...")
-
-    documents = ingest_pipeline(csv_path)
-    return create_vector_store(documents)
