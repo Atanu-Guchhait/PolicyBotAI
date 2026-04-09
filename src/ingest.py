@@ -119,7 +119,6 @@ def build_metadata(row: pd.Series) -> Dict[str, Any]:
         "category": row.get("category"),
         "subcategory": row.get("subcategory"),
         "department": row.get("department"),
-        "applicable_to": row.get("applicable_to"),
         "version": row.get("version"),
         "year": row.get("last_updated_year"),
         "is_mandatory": row.get("is_mandatory"),
