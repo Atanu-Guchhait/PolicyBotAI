@@ -5,11 +5,10 @@ from langchain_chroma import Chroma
 
 from src.retrievers.mmr_retriever import get_base_retriever
 from src.retrievers.multiquery_retriever import get_multiquery_retriever
-from src.retrievers.chroma_metadata_filter import build_chroma_filter
+from src.retrievers.metadata_filter_retriever import retrieve_with_filter 
 from utils.logger import setup_logger
 
 logger = setup_logger(__name__)
-
 
 # ******************************* HYBRID RETRIEVER ****************************
 def retrieve_documents(
@@ -19,61 +18,86 @@ def retrieve_documents(
     filters: Optional[Dict[str, Any]] = None,
     k: int = 5
 ) -> List[Document]:
+    """
+    Orchestrates multi-stage retrieval:
+    1. Pre-filter (Strict DB check)
+    2. Semantic Search (Broad Fallback)
+    3. Intelligent Post-Filter (Ranking by metadata relevance, version, and keywords)
+    """
 
-    # 1. Convert filters → Chroma format
-    chroma_filter = build_chroma_filter(filters)
-    
-    # 2. PRE-FILTER ATTEMPT (Strict matching)
-    if chroma_filter:
-        logger.info(f"Attempting pre-filter retrieval with: {chroma_filter}")
-        docs = vectordb.similarity_search(
-            query=query,
-            k=k,
-            filter=chroma_filter   
-        )
-
-        if docs:
-            logger.info(f"Successfully retrieved {len(docs)} docs with pre-filter.")
-            return docs
+    # --- STAGE 1: PRE-FILTER (Strict Database Query) ---
+    if filters:
+        logger.info(f"Attempting pre-filter retrieval with: {filters}")
+        try:
+            docs = retrieve_with_filter(
+                vectordb=vectordb,
+                query=query,
+                filters=filters,
+                k=k
+            )
+            if docs:
+                logger.info(f"Successfully retrieved {len(docs)} docs with strict pre-filter.")
+                return docs
+        except Exception as e:
+            logger.error(f"Pre-filter search error: {e}")
 
         logger.warning("No docs found with strict pre-filter. Falling back to semantic search...")
 
-    # 3. FALLBACK: SEMANTIC SEARCH (Retriever Selection)
-    # If filters failed or were not provided, we rely on text similarity.
-    if llm and not filters:
-        retriever = get_multiquery_retriever(vectordb, llm, k)
-    else:
-        # We use the base retriever (MMR) to get a diverse set of results
-        retriever = get_base_retriever(vectordb, k)
-
-    # Invoke retriever (this ignores the strict chroma_filter metadata)
+    # --- STAGE 2: SEMANTIC SEARCH ---
+    # We retrieve k*3 candidates to allow the Post-Filter to promote relevant general docs
+    retriever = get_multiquery_retriever(vectordb, llm, k * 3) if llm else get_base_retriever(vectordb, k * 3)
     docs = retriever.invoke(query)
 
-    # 4. SMART POST-FILTER (Refinement)
+    # --- STAGE 3: SMART POST-FILTER (Re-ranking) ---
     if filters and docs:
-        # We try to match as many filters as possible, but we don't 
-        # return an empty list if one filter (like a specific year) fails.
-        filtered_docs = []
+        scored_docs = []
+        subject_keys = {"subcategory", "policy_name"}
+        structural_keys = {"department", "category"}
+        
         for doc in docs:
-            match_count = 0
-            for key, value in filters.items():
-                doc_val = str(doc.metadata.get(key, "")).lower()
-                target_val = str(value).lower()
-                if target_val in doc_val or doc_val in target_val:
-                    match_count += 1
+            score = 0.0
+            doc_metadata = doc.metadata or {}
             
-            # If at least one major filter matches (e.g., department), prioritize it
+            # --- A. VERSION TIE-BREAKER ---
+            # Kept very small (0.01) to avoid overriding subject matches
+            v = doc_metadata.get("version", "1.0")
+            try:
+                score += (float(str(v).replace('v','').strip()) * 0.01)
+            except:
+                score += 0.001
+
+            # --- B. METADATA MATCH SCORING ---
+            for key, target in filters.items():
+                actual = doc_metadata.get(key)
+                if not actual: continue
+                
+                # Exact matches for Policy/Subcategory are weighted heavily
+                if str(actual).lower() == str(target).lower():
+                    if key in subject_keys:
+                        score += 5.0
+                    elif key in structural_keys:
+                        score += 2.0
+
+            # --- C. KEYWORD RELEVANCE BONUS (The Fix for 'I don't know') ---
+            # If a document contains the specific keywords from the user's question,
+            # we give it a massive boost. This allows a 'General Leave' document 
+            # to be promoted if it contains 'carry forward' or 'notice period'.
+            query_words = set(query.lower().split())
+            content_lower = doc.page_content.lower()
+            
+            # Filter for meaningful words to avoid boosting on 'the', 'is', 'for'
+            important_words = [w for w in query_words if len(w) > 3]
+            match_count = sum(1 for w in important_words if w in content_lower)
+            
             if match_count > 0:
-                filtered_docs.append(doc)
+                # Each matching keyword adds significant weight
+                score += (match_count * 1.5)
 
-        if filtered_docs:
-            logger.info(f"Post-filtered matches found: {len(filtered_docs)}")
-            return filtered_docs
-
-    # 5. FINAL FALLBACK
-    # If even post-filtering finds nothing, return the raw semantic results 
-    # so the LLM can at least try to find the answer in the text.
-    if not docs:
-        logger.error("Total retrieval failure: No documents found even in fallback.")
+            scored_docs.append((score, doc))
+        
+        # Sort by total score descending
+        scored_docs.sort(key=lambda x: x[0], reverse=True)
+        logger.info(f"Post-filtered matches found: {len(scored_docs)}. Best score: {scored_docs[0][0]}")
+        return [d[1] for d in scored_docs[:k]]
     
-    return docs
+    return docs[:k]
