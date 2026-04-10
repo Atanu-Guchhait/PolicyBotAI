@@ -1,14 +1,12 @@
 from langchain_core.chat_history import InMemoryChatMessageHistory
 from langchain_core.messages import HumanMessage, AIMessage
 
-
 class WindowMemory:
-    """Use Short-term-memory to store converastion and also update filters"""
-    def __init__(self, k=30):
+    """Stores conversation history and manages the persistent User Profile (filters)."""
+    def __init__(self, k=20):
         self.chat_history = InMemoryChatMessageHistory()
         self.k = k
-
-        # structured memory (user profile)
+        # Structured memory (Persistent Session Metadata)
         self.filters = {}
 
     def add_user_message(self, message: str):
@@ -18,41 +16,56 @@ class WindowMemory:
         self.chat_history.add_message(AIMessage(content=message))
 
     def get_messages(self):
+        """Returns the last k messages."""
         return self.chat_history.messages[-self.k:] if self.chat_history.messages else []
 
-    # update filters
     def update_filters(self, new_filters: dict):
-        #  Define terms that should NEVER overwrite a specific, known trait
+        """
+        Merges new findings into existing profile. 
+        Protects specific values from being overwritten by generic ones.
+        """
         generic_terms = {"all employees", "all", "any", "unknown", "n/a", "general", "none", "not specified"}
 
         for key, value in new_filters.items():
-            if value:
+            if value is not None:
                 val_clean = str(value).lower().strip()
                 
-                #  Dynamic check: Does this key already have a specific, non-generic value?
+                # --- SPECIAL HANDLING FOR BOOLEANS ---
+                if key == "is_mandatory":
+                    self.filters[key] = val_clean == "true"
+                    continue
+
+                # --- SPECIAL HANDLING FOR DEPARTMENT (SECURITY) ---
                 existing_value = self.filters.get(key)
                 
+                if key == "department":
+                    # If we already have a specific department, don't let 'all' overwrite the security lock
+                    if existing_value and existing_value not in generic_terms:
+                        if val_clean in generic_terms:
+                            continue 
+                
+                # --- GENERAL OVERWRITE PROTECTION ---
+                # Don't let a generic term (like 'all') overwrite a specific term (like 'male')
                 if existing_value and existing_value not in generic_terms:
-                    # If we already know the user is 'admin', don't let 'all' overwrite it
                     if val_clean in generic_terms:
                         continue  
                 
-                # Otherwise, update or set the new value
                 self.filters[key] = val_clean
 
-    # get user profile
     def get_filters(self):
+        """Retrieves the full profile of metadata filters."""
         return self.filters
 
-    # reset filters
     def clear_filters(self):
+        """Wipes the current user profile."""
         self.filters = {}
 
 
-#  multi-user support
+# --- Session Store Management ---
 memory_store = {}
 
 def get_memory(session_id: str):
+    """Retrieves existing memory object or initializes a new one for a user session."""
     if session_id not in memory_store:
-        memory_store[session_id] = WindowMemory(k=30)
+        memory_store[session_id] = WindowMemory(k=20)
     return memory_store[session_id]
