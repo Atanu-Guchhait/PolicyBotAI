@@ -24,6 +24,7 @@ def get_prompt():
             "- TOPIC LOCK: If the human refers to 'it', 'this', or 'that', ensure you answer based on the subcategory mentioned in the Document Metadata.\n"
             "- SILENCE HANDLING: If a specific feature (like carry forward) is not mentioned in a policy, state: 'The policy does not explicitly provide details on [Topic]' instead of saying you don't know.\n"
             "- TONE: Maintain a professional, concise, and authoritative HR tone.\n"
+            "- If any user asked general questions give generic answer and handled it carefully"
 
 
             "--- RESPONSE FORMAT RULES (STRICT) ---\n"
