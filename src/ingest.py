@@ -20,7 +20,6 @@ def load_csv(file_path: str) -> pd.DataFrame:
 
 
 
-
 # ************************* CLEAN AND NORMALIZE DATA ****************** 
 def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     """ Normalize, clean, Remove white space to the features"""
