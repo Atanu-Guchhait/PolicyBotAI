@@ -1,0 +1,2 @@
+policy_id,policy_name,category,subcategory,department,description,version,effective_date,review_cycle,approval_authority,is_mandatory,last_updated_year,details
+3049,Sick Leave — Leave Policy,Leave Policy,Sick Leave,Admin,"Outlines the leave entitlement, carry-forward rules, and encashment policies.",v4.2,04-10-2026,Quarterly,CHRO,Yes,2026,"{""days_per_year"": 30, ""carry_forward_allowed"": ""Yes"", ""max_carry_forward_days"": 11, ""encashment_allowed"": ""No"", ""advance_notice_days"": 0}"
