@@ -1,48 +1,79 @@
-from typing import Callable, Dict, Any
+from typing import Callable, Dict, Any, List
 from langchain_core.runnables import RunnableLambda
 from langchain_core.output_parsers import StrOutputParser
 
-from src.prompt import get_prompt
 from utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 
+# **************************** FORMAT DOCS ****************************
+def format_docs(docs: List, max_docs: int = 5) -> str:
+    if not docs:
+        return "No relevant policy documents found."
+    
+    formatted = []
+    for i, doc in enumerate(docs[:max_docs]):
+        # Extract metadata - using .get() with defaults is good practice
+        policy_name = doc.metadata.get('policy_name', 'Unknown Policy')
+        version = doc.metadata.get('version', 'Unknown')
+        year = doc.metadata.get('year', 'Unknown')
+        cycle = doc.metadata.get('review_cycle', 'As Needed')
+        
+        # --- IMPROVEMENT: Clearer Header for the LLM Auditor ---
+        # We wrap the metadata in a clear 'METADATA' tag so the LLM knows 
+        # these are the facts it must use for the Temporal Audit.
+        header = (f"--- DOCUMENT {i+1} METADATA ---\n"
+                  f"Policy: {policy_name}\n"
+                  f"Version: {version}\n"
+                  f"Last Updated Year: {year}\n"
+                  f"Review Cycle: {cycle}\n"
+                  f"--- CONTENT ---")
+        
+        formatted.append(f"{header}\n{doc.page_content}")
+        
+    return "\n\n".join(formatted)
 
-#  Format retrieved documents
-def format_docs(docs, max_docs=5):
-    docs = docs[:max_docs]
-    return "\n\n".join(doc.page_content for doc in docs)
-
-
-#  Build chain
-def build_chain(retriever_fn: Callable, llm):
-    prompt = get_prompt()
-
-    # 🔹 Step 1: Retrieve + prepare inputs
+# **************************** BUILD CHAIN ****************************
+def build_chain(retriever_fn: Callable, llm, vectordb, prompt):
+    
+    # Retrieve + prepare inputs
     def prepare_inputs(inputs: Dict[str, Any]):
-        query = inputs["question"]
+        question = inputs["question"]
+        standalone_question = inputs["standalone_question"]
         chat_history = inputs.get("chat_history", [])
-        filters = inputs.get("filters", None)
+        active_filters = inputs.get("active_filters", {})
+        current_date = inputs.get("current_date", "Unknown Date")
+        # ADDED: current_year for the prompt audit logic
+        current_year = inputs.get("current_year", 2026) 
 
+        # Build the user profile string for the prompt
+        if active_filters:
+            profile_text = "\n".join([f"- {k.capitalize()}: {v}" for k, v in active_filters.items()])
+        else:
+            profile_text = "No profile details known yet."
+
+        # Execute the Hybrid Retriever
         docs = retriever_fn(
-            query=query,
-            filters=filters
+            vectordb=vectordb,
+            query=standalone_question,
+            llm=llm,
+            filters=active_filters
         )
 
-        logger.info(f"Retrieved {len(docs)} documents")
+        logger.info(f"LCEL Chain Retrieved {len(docs)} documents")
+        context = format_docs(docs)
 
-        #  Handle empty retrieval
-        if not docs:
-            context = "No relevant policy found."
-        else:
-            context = format_docs(docs)
-
+        # Return the dictionary expected by your prompt.py
         return {
             "context": context,
-            "question": query,
-            "chat_history": chat_history
+            "question": question, 
+            "chat_history": chat_history,
+            "user_profile": profile_text,
+            "current_date": current_date,
+            "current_year": current_year 
         }
 
+    # The LCEL Pipeline
     chain = (
         RunnableLambda(prepare_inputs)
         | prompt
